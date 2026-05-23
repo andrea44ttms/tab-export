@@ -1,5 +1,4 @@
-"""Command-line interface for tab-export."""
-
+"""CLI entry point for tab-export."""
 from __future__ import annotations
 
 import argparse
@@ -9,6 +8,7 @@ from pathlib import Path
 from tab_export.deduplicator import deduplicate
 from tab_export.formatter import format_export
 from tab_export.parser import parse
+from tab_export.sorter import SortKey, SortOptions, SortOrder, sort_export
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -16,31 +16,42 @@ def build_parser() -> argparse.ArgumentParser:
         prog="tab-export",
         description="Convert exported browser tab lists to Markdown or Notion format.",
     )
-    p.add_argument("file", type=Path, help="Path to the exported tab list file.")
+    p.add_argument("input", type=Path, help="Path to the exported tab file.")
     p.add_argument(
+        "-o", "--output", type=Path, default=None, help="Write output to file."
+    )
+    p.add_argument(
+        "-f",
         "--format",
         choices=["markdown", "notion"],
         default="markdown",
+        dest="fmt",
         help="Output format (default: markdown).",
-    )
-    p.add_argument(
-        "--output",
-        "-o",
-        type=Path,
-        default=None,
-        help="Write output to this file instead of stdout.",
     )
     p.add_argument(
         "--dedupe",
         action="store_true",
-        default=False,
         help="Remove duplicate URLs before formatting.",
     )
     p.add_argument(
-        "--dedupe-within-group",
+        "--sort",
+        choices=[k.value for k in SortKey],
+        default=None,
+        metavar="KEY",
+        help="Sort tabs by: title, url, or group.",
+    )
+    p.add_argument(
+        "--sort-order",
+        choices=[o.value for o in SortOrder],
+        default="asc",
+        dest="sort_order",
+        help="Sort direction (default: asc).",
+    )
+    p.add_argument(
+        "--sort-groups",
         action="store_true",
-        default=False,
-        help="Remove duplicates only within each group (implies --dedupe).",
+        dest="sort_groups",
+        help="Also sort group names alphabetically.",
     )
     return p
 
@@ -49,27 +60,29 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if not args.file.exists():
-        print(f"error: file not found: {args.file}", file=sys.stderr)
+    if not args.input.exists():
+        print(f"Error: file not found: {args.input}", file=sys.stderr)
         return 1
 
-    try:
-        export = parse(args.file)
-    except Exception as exc:  # noqa: BLE001
-        print(f"error: could not parse file: {exc}", file=sys.stderr)
-        return 1
+    export = parse(args.input)
 
-    if args.dedupe or args.dedupe_within_group:
-        across = not args.dedupe_within_group
-        result = deduplicate(export, across_groups=across)
+    if args.dedupe:
+        result = deduplicate(export)
         export = result.export
-        if result.removed_count:
+        if result.removed_count > 0:
             print(
-                f"info: removed {result.removed_count} duplicate(s)",
-                file=sys.stderr,
+                f"Removed {result.removed_count} duplicate(s).", file=sys.stderr
             )
 
-    output = format_export(export, fmt=args.format)
+    if args.sort:
+        opts = SortOptions(
+            key=SortKey(args.sort),
+            order=SortOrder(args.sort_order),
+            sort_groups=args.sort_groups,
+        )
+        export = sort_export(export, opts)
+
+    output = format_export(export, args.fmt)
 
     if args.output:
         args.output.write_text(output, encoding="utf-8")
