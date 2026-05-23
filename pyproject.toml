@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tab-export"
+version = "0.1.0"
+description = "Browser extension companion CLI that processes exported browser tab lists into organized markdown or Notion-ready format."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "tab-export contributors" },
+]
+keywords = ["browser", "tabs", "markdown", "notion", "cli"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+]
+dependencies = []
+
+[project.scripts]
+tab-export = "tab_export.cli:main"
+
+[tool.hatch.envs.default]
+dependencies = [
+    "pytest>=8.0",
+    "pytest-cov",
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest {args:tests}"
+test-cov = "pytest --cov=tab_export {args:tests}"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["tab_export"]
+
+[tool.coverage.report]
+show_missing = true
