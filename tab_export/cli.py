@@ -1,65 +1,83 @@
 """Command-line interface for tab-export."""
 
+from __future__ import annotations
+
 import argparse
 import sys
 from pathlib import Path
 
-from tab_export.parser import parse
+from tab_export.deduplicator import deduplicate
 from tab_export.formatter import format_export
+from tab_export.parser import parse
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    p = argparse.ArgumentParser(
         prog="tab-export",
-        description="Convert exported browser tab lists into organized markdown or Notion-ready format.",
+        description="Convert exported browser tab lists to Markdown or Notion format.",
     )
-    parser.add_argument(
-        "input",
-        type=Path,
-        help="Path to the exported tab list file.",
-    )
-    parser.add_argument(
-        "-f",
+    p.add_argument("file", type=Path, help="Path to the exported tab list file.")
+    p.add_argument(
         "--format",
         choices=["markdown", "notion"],
         default="markdown",
         help="Output format (default: markdown).",
     )
-    parser.add_argument(
-        "-o",
+    p.add_argument(
         "--output",
+        "-o",
         type=Path,
         default=None,
         help="Write output to this file instead of stdout.",
     )
-    return parser
+    p.add_argument(
+        "--dedupe",
+        action="store_true",
+        default=False,
+        help="Remove duplicate URLs before formatting.",
+    )
+    p.add_argument(
+        "--dedupe-within-group",
+        action="store_true",
+        default=False,
+        help="Remove duplicates only within each group (implies --dedupe).",
+    )
+    return p
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    input_path: Path = args.input
-    if not input_path.exists():
-        print(f"error: file not found: {input_path}", file=sys.stderr)
+    if not args.file.exists():
+        print(f"error: file not found: {args.file}", file=sys.stderr)
         return 1
 
     try:
-        tab_export = parse(input_path)
+        export = parse(args.file)
     except Exception as exc:  # noqa: BLE001
-        print(f"error: failed to parse {input_path}: {exc}", file=sys.stderr)
+        print(f"error: could not parse file: {exc}", file=sys.stderr)
         return 1
 
-    output = format_export(tab_export, fmt=args.format)
+    if args.dedupe or args.dedupe_within_group:
+        across = not args.dedupe_within_group
+        result = deduplicate(export, across_groups=across)
+        export = result.export
+        if result.removed_count:
+            print(
+                f"info: removed {result.removed_count} duplicate(s)",
+                file=sys.stderr,
+            )
+
+    output = format_export(export, fmt=args.format)
 
     if args.output:
         args.output.write_text(output, encoding="utf-8")
-        print(f"Written to {args.output}")
     else:
         sys.stdout.write(output)
 
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
