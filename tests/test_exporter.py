@@ -92,4 +92,15 @@ def test_pipeline_sort_orders_tabs(base_export):
     assert isinstance(result.output, str)
     github_pos = result.output.find("GitHub")
     jira_pos = result.output.find("Jira")
-    assert github_pos < jira_pos
+    assert github_pos < jira_pos, "GitHub should appear before Jira when sorted ascending by title"
+
+
+def test_pipeline_sort_descending_orders_tabs(base_export):
+    """Jira should appear before GitHub when sorted descending by title."""
+    opts = PipelineOptions(
+        sort_opts=SortOptions(key=SortKey.TITLE, order=SortOrder.DESC)
+    )
+    result = run_pipeline(base_export, opts)
+    github_pos = result.output.find("GitHub")
+    jira_pos = result.output.find("Jira")
+    assert jira_pos < github_pos, "Jira should appear before GitHub when sorted descending by title"
