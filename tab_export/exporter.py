@@ -1,4 +1,4 @@
-"""Export pipeline: applies deduplication, sorting, filtering, and formatting."""
+"""Pipeline orchestrator that wires together core processing steps."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,10 +13,14 @@ from tab_export.formatter import format_export
 
 @dataclass
 class PipelineOptions:
-    output_format: str = "markdown"
     deduplicate: bool = True
     sort: Optional[SortOptions] = None
     filter: Optional[FilterOptions] = None
+    output_format: str = "markdown"  # "markdown" | "notion"
+
+    def __post_init__(self) -> None:
+        if self.output_format not in ("markdown", "notion"):
+            raise ValueError(f"Unknown output_format: {self.output_format!r}")
 
 
 @dataclass
@@ -24,14 +28,12 @@ class PipelineResult:
     output: str
     tabs_before: int
     tabs_after: int
-    _removed: int = field(init=False)
+    tabs_removed: int = field(init=False)
+    dedup_removed: int = 0
+    filter_removed: int = 0
 
     def __post_init__(self) -> None:
-        self._removed = self.tabs_before - self.tabs_after
-
-    @property
-    def tabs_removed(self) -> int:
-        return self._removed
+        self.tabs_removed = self.tabs_before - self.tabs_after
 
 
 def _count_tabs(export: TabExport) -> int:
@@ -39,30 +41,34 @@ def _count_tabs(export: TabExport) -> int:
 
 
 def run_pipeline(export: TabExport, options: Optional[PipelineOptions] = None) -> PipelineResult:
-    """Run the full processing pipeline on a TabExport and return formatted output."""
+    """Run the standard processing pipeline and return formatted output."""
     if options is None:
         options = PipelineOptions()
 
     tabs_before = _count_tabs(export)
-    current = export
-
-    if options.filter is not None:
-        filter_result = filter_export(current, options.filter)
-        current = filter_result.export
+    dedup_removed = 0
+    filter_removed = 0
 
     if options.deduplicate:
-        dedup_result = deduplicate(current)
-        current = dedup_result.export
+        dedup_result = deduplicate(export)
+        export = dedup_result.export
+        dedup_removed = dedup_result.removed_count
+
+    if options.filter is not None:
+        filter_result = filter_export(export, options.filter)
+        export = filter_result.export
+        filter_removed = filter_result.removed_count
 
     if options.sort is not None:
-        sort_result = sort_export(current, options.sort)
-        current = sort_result
+        export = sort_export(export, options.sort)
 
-    tabs_after = _count_tabs(current)
-    output = format_export(current, fmt=options.output_format)
+    output = format_export(export, fmt=options.output_format)
+    tabs_after = _count_tabs(export)
 
     return PipelineResult(
         output=output,
         tabs_before=tabs_before,
         tabs_after=tabs_after,
+        dedup_removed=dedup_removed,
+        filter_removed=filter_removed,
     )
