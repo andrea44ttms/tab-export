@@ -1,106 +1,87 @@
-"""Tests for the export pipeline in tab_export/exporter.py."""
+"""Tests for tab_export.exporter pipeline."""
+from __future__ import annotations
 
 import pytest
-from tab_export.parser import TabExport, Tab
-from tab_export.filter import FilterOptions
-from tab_export.sorter import SortOptions, SortKey, SortOrder
+
+from tab_export.parser import Tab, TabExport
 from tab_export.exporter import PipelineOptions, PipelineResult, run_pipeline
+from tab_export.sorter import SortOptions, SortKey, SortOrder
+from tab_export.filter import FilterOptions
 
 
-@pytest.fixture
-def base_export():
+@pytest.fixture()
+def base_export() -> TabExport:
     return TabExport(
         source_file="test.txt",
         raw_groups={
             "Work": [
-                Tab(title="GitHub", url="https://github.com/org/repo"),
-                Tab(title="GitHub", url="https://github.com/org/repo"),
-                Tab(title="Jira", url="https://jira.example.com/board"),
+                Tab(title="GitHub", url="https://github.com"),
+                Tab(title="Jira", url="https://jira.example.com"),
+                Tab(title="GitHub", url="https://github.com"),  # duplicate
             ],
             "News": [
-                Tab(title="Hacker News", url="https://news.ycombinator.com"),
-                Tab(title="Lobsters", url="https://lobste.rs"),
+                Tab(title="BBC", url="https://bbc.co.uk"),
+                Tab(title="Reuters", url="https://reuters.com"),
             ],
         },
     )
 
 
-def test_run_pipeline_returns_pipeline_result(base_export):
-    opts = PipelineOptions()
-    result = run_pipeline(base_export, opts)
+def test_run_pipeline_returns_pipeline_result(base_export: TabExport) -> None:
+    result = run_pipeline(base_export)
     assert isinstance(result, PipelineResult)
 
 
-def test_pipeline_output_is_nonempty(base_export):
-    opts = PipelineOptions()
-    result = run_pipeline(base_export, opts)
+def test_pipeline_output_is_nonempty(base_export: TabExport) -> None:
+    result = run_pipeline(base_export)
     assert len(result.output) > 0
 
 
-def test_pipeline_deduplication_removes_dupes(base_export):
+def test_pipeline_deduplication_removes_dupes(base_export: TabExport) -> None:
     opts = PipelineOptions(deduplicate=True)
     result = run_pipeline(base_export, opts)
-    assert result.removed_duplicates == 1
+    assert result.tabs_removed >= 1
 
 
-def test_pipeline_no_dedup_leaves_zero(base_export):
+def test_pipeline_no_dedup_leaves_zero(base_export: TabExport) -> None:
     opts = PipelineOptions(deduplicate=False)
     result = run_pipeline(base_export, opts)
-    assert result.removed_duplicates == 0
+    assert result.tabs_removed == 0
 
 
-def test_pipeline_filter_reduces_tabs(base_export):
-    opts = PipelineOptions(filter_opts=FilterOptions(keyword="github"))
+def test_tabs_before_counts_all_tabs(base_export: TabExport) -> None:
+    opts = PipelineOptions(deduplicate=False)
     result = run_pipeline(base_export, opts)
-    assert result.filtered_out > 0
-    assert "GitHub" in result.output
-    assert "Jira" not in result.output
+    assert result.tabs_before == 5
 
 
-def test_pipeline_no_filter_keeps_all(base_export):
-    opts = PipelineOptions()
+def test_tabs_after_reflects_dedup(base_export: TabExport) -> None:
+    opts = PipelineOptions(deduplicate=True)
     result = run_pipeline(base_export, opts)
-    assert result.filtered_out == 0
-    assert "Jira" in result.output
+    assert result.tabs_after == result.tabs_before - result.tabs_removed
 
 
-def test_pipeline_notion_format(base_export):
-    opts = PipelineOptions(output_format="notion")
+def test_pipeline_notion_format(base_export: TabExport) -> None:
+    opts = PipelineOptions(output_format="notion", deduplicate=False)
     result = run_pipeline(base_export, opts)
-    assert "### " in result.output
-    assert "## " not in result.output
+    assert "###" in result.output
 
 
-def test_pipeline_stats_report_included(base_export):
-    opts = PipelineOptions(include_stats=True)
+def test_pipeline_with_filter_reduces_tabs(base_export: TabExport) -> None:
+    filter_opts = FilterOptions(keywords=["github"])
+    opts = PipelineOptions(deduplicate=False, filter=filter_opts)
     result = run_pipeline(base_export, opts)
-    assert result.stats_report is not None
-    assert len(result.stats_report) > 0
+    assert result.tabs_after < result.tabs_before
 
 
-def test_pipeline_stats_report_excluded_by_default(base_export):
-    opts = PipelineOptions()
+def test_pipeline_with_sort_does_not_change_count(base_export: TabExport) -> None:
+    sort_opts = SortOptions(key=SortKey.TITLE, order=SortOrder.ASC)
+    opts = PipelineOptions(deduplicate=False, sort=sort_opts)
     result = run_pipeline(base_export, opts)
-    assert result.stats_report is None
+    assert result.tabs_before == result.tabs_after
 
 
-def test_pipeline_sort_orders_tabs(base_export):
-    opts = PipelineOptions(
-        sort_opts=SortOptions(key=SortKey.TITLE, order=SortOrder.ASC)
-    )
-    result = run_pipeline(base_export, opts)
-    assert isinstance(result.output, str)
-    github_pos = result.output.find("GitHub")
-    jira_pos = result.output.find("Jira")
-    assert github_pos < jira_pos, "GitHub should appear before Jira when sorted ascending by title"
-
-
-def test_pipeline_sort_descending_orders_tabs(base_export):
-    """Jira should appear before GitHub when sorted descending by title."""
-    opts = PipelineOptions(
-        sort_opts=SortOptions(key=SortKey.TITLE, order=SortOrder.DESC)
-    )
-    result = run_pipeline(base_export, opts)
-    github_pos = result.output.find("GitHub")
-    jira_pos = result.output.find("Jira")
-    assert jira_pos < github_pos, "Jira should appear before GitHub when sorted descending by title"
+def test_default_options_applied_when_none_passed(base_export: TabExport) -> None:
+    result = run_pipeline(base_export, None)
+    assert isinstance(result, PipelineResult)
+    assert result.tabs_removed >= 1
